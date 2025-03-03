@@ -25,9 +25,12 @@ st.title('KITCHEN NIGHTMARES')
 col1, col2 = st.columns([6, 6])
 
 with col1:
+    map_df = establishments_df.copy()
+    categories_filter = st.multiselect(label='Choose category', options=map_df.category.unique().tolist())
+    if categories_filter: map_df = map_df.query('category.isin(@categories_filter)')
     map_selection = st.plotly_chart(
         px.scatter_map(
-            data_frame=establishments_df, 
+            data_frame=map_df, 
             lat='latitude', 
             lon='longitude',
             zoom=12,
@@ -42,7 +45,7 @@ with col1:
                                'Inspection Score: %{customdata[1]}<br>'
                                ),
             ).update_layout(
-                width=600800,
+                width=800,
                 height=800
             ).update_coloraxes(
                 showscale=False
@@ -55,13 +58,14 @@ with col1:
 
 
 if map_selection.selection['point_indices']:
-    temp_df = establishments_df.iloc[map_selection.selection['point_indices']]
+    temp_df = map_df.iloc[map_selection.selection['point_indices']]
     with col2:
         filter_cols = st.columns([6, 6])
         with filter_cols[0]:
             agg_col = st.selectbox(label='Choose Aggregation', options=['average_rating', 'n_reviews', 'score'])
         with filter_cols[1]:
-            top_n = st.number_input(label='Top N', min_value=2, max_value=len(temp_df.category.unique()), value=len(temp_df.category.unique()[:10]))
+            top_n = st.number_input(label='Top N', min_value=1, max_value=len(temp_df.category.unique()), value=len(temp_df.category.unique()[:10]))
+    
         # BAR PLOT
         agg_df = (temp_df
                 #   .query('category.isin(@category_filter)')

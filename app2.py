@@ -37,12 +37,11 @@ nyc_establishments = (establishments
 
 
 ######### FILTERS #########
-categories = st.multiselect(label='Choose categories', options=load_categories())
-
 with st.popover('Filters', use_container_width=True):
     col1, col2= st.columns([3, 3])
     with col1:
-        st.write('test')
+        categories = st.multiselect(label='Choose categories', options=load_categories())
+        # st.write('test')
     with col2:
         st.write('test')
 

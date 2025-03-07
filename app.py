@@ -2,65 +2,87 @@ import streamlit as st
 import duckdb
 import pandas as pd
 import plotly.express as px
+import polars as pl
 
 st.set_page_config(layout='wide')
 
-# Load Data
-establishments_df = pd.read_parquet('data/atx_establishments.parquet').dropna(subset='n_reviews').astype({'latitude': float, 'longitude': float})
-duckdb.register('establishments', establishments_df)
+######### DEFINE FUNCTIONS ######### 
 
-# query = """
-# select 
-#     facility_id,
-#     timestamp,
-#     rating,
-#     text
-# from read_csv_auto('data/atx_reviews.csv')
-# where text not null
-# """
-# reviews_df = duckdb.query(query).df()
+def load_categories():
+    query = """
+    with category_counts as (
+    select
+        category,
+        count(category) as count
+    from read_parquet('data/all/all_establishments.parquet') 
+    where state = 'NY'
+    group by category
+    )
 
-st.title('KITCHEN NIGHTMARES')
-
-col1, col2 = st.columns([6, 6])
-
-with col1:
-    map_df = establishments_df.copy()
-
-    temp_cols = st.columns([6, 6])
+    select distinct category
+    FROM category_counts
+    where count >= 50
+    order by category asc
+    """ 
+    return duckdb.query(query).df()
 
 
-    # categories filter
-    with temp_cols[0]:
-        categories_filter = st.multiselect(label='Choose category', options=map_df.category.unique().tolist())
-        if categories_filter: map_df = map_df.query('category.isin(@categories_filter)')
+######### LOAD DATA ######### 
+establishments = pl.scan_parquet('data/all/all_establishments.parquet')
+reviews = pl.scan_parquet('data/all/all_reviews.parquet')
+nyc_establishments = (establishments
+                      .filter(
+                          (True==True)
+                          & (pl.col('state') == "NY")
+                          & (pl.col('longitude').is_not_null())
+                          & (pl.col('average_rating').is_not_null())
+                          )
+                      )
 
-    # scale var 
-    with temp_cols[1]:
-        scale_var = st.selectbox(label='Choose Scale Variable', options=['score', 'average_rating'])
-        color_min = establishments_df[scale_var].quantile(0.025)
-        color_max = establishments_df[scale_var].quantile(0.85)
+######### LAYOUT #########
+main_filter_col, _ = st.columns([6, 6])
 
-    # create map
+map_col, agg_col = st.columns([6, 6])
+
+######### FILTERS #########
+with main_filter_col:
+    with st.popover('Filters', use_container_width=True):
+        filter_col1, filter_col2= st.columns([3, 3])
+        with filter_col1:
+            categories = st.multiselect(label='Choose categories', options=load_categories())
+            # st.write('test')
+        with filter_col2:
+            st.write('test')
+
+
+
+######### MAP #########
+with map_col:
+    map_df = nyc_establishments.collect().to_pandas()
+    if categories:
+        map_df = map_df.query('category.isin(@categories)')
+
+    color_min = map_df['average_rating'].quantile(0.025)
+    color_max = map_df['average_rating'].quantile(0.85)
     map_selection = st.plotly_chart(
         px.scatter_map(
             data_frame=map_df, 
             lat='latitude', 
             lon='longitude',
             zoom=12,
-            center=dict(lat=30.26, lon=-97.74),
-            color=scale_var,
+            center=dict(lat=40.7473666, lon=-73.9902979),
+            color='average_rating',
             color_continuous_scale="RdYlGn",
             range_color=[color_min, color_max],
+            opacity=0.75,
             map_style='carto-darkmatter',
             hover_name='restaurant_name',
             custom_data=['restaurant_name', 'average_rating', 'score']
             ).update_traces(
                 hovertemplate=('%{customdata[0]}<br>'
-                               'GoogleMaps Rating: %{customdata[1]}<br>'
-                               'Inspection Score: %{customdata[2]}<br>'
-                               
-                               ),
+                                'GoogleMaps Rating: %{customdata[1]}<br>'
+                                ),
+                marker=dict(size=10)
             ).update_layout(
                 width=800,
                 height=800
@@ -72,81 +94,37 @@ with col1:
         use_container_width=True
         )
 
-
-
-if map_selection.selection['point_indices']:
-    temp_df = map_df.iloc[map_selection.selection['point_indices']]
-    with col2:
-        df_data = st.dataframe(temp_df[['restaurant_name', 'score', 'average_rating', 'category', 'price', 'facility_id']], 
-                               on_select="rerun", 
-                               selection_mode="multi-row", 
-                               hide_index=True
-                               )
+with agg_col:
+    tab1, tab2 = st.tabs(["📈 Ratings Over Time", "🗃 Reviews"])
+    with tab1:
+        if map_selection.selection['point_indices']:
+            map_selection_idx = map_selection.selection['point_indices']
+            fac_ids = map_df.iloc[map_selection_idx]['facility_id']
+        else:
+            fac_ids = map_df.facility_id.to_list()
         
-        fac_ids = tuple(temp_df.iloc[df_data['selection']['rows']]['facility_id'].to_list())
+        ratings_timeseries = (nyc_establishments
+                            .filter(pl.col('facility_id').is_in(fac_ids))
+                            .select('facility_id')
+                            .join(reviews, on='facility_id')
+                            .with_columns(pl.col('timestamp').cast(pl.Datetime('us')))
+                            .with_columns(pl.col('timestamp').dt.strftime('%Y-%m').alias('year_month'))
+                            .filter(pl.col('timestamp').dt.year() >= 2020)
+                            .group_by('year_month')
+                            .agg(pl.col('rating').mean().alias('monthly_rating'))
+                            .sort(by='year_month')
+                            .with_columns(rolling_mean=pl.col('monthly_rating').rolling_mean(window_size=6))
+                            .collect()
+                            )
 
-        query = f"""
-        select 
-            facility_id,
-            timestamp,
-            rating,
-            text
-        from read_csv_auto('data/atx_reviews.csv')
-        where true
-        and facility_id in {fac_ids}
-        and text not null
-        """
-        reviews_df = duckdb.query(query).df()
-        st.write(reviews_df.sort_values(by='timestamp'))
+        st.plotly_chart(
+            px.line(
+                data_frame=ratings_timeseries,
+                x='year_month',
+                y='rolling_mean'
+            )
+        )
 
-        # st.write(df_data)
-        # st.write(temp_df.iloc[df_data['selection']['rows']]['facility_id'])
-        # filter_cols = st.columns([6, 6])
-        # with filter_cols[0]:
-        #     agg_col = st.selectbox(label='Choose Aggregation', options=['average_rating', 'n_reviews', 'score'])
-        # with filter_cols[1]:
-        #     top_n = st.number_input(label='Top N', min_value=1, max_value=len(temp_df.category.unique()), value=len(temp_df.category.unique()[:10]))
-    
-        # # BAR PLOT
-        # agg_df = (temp_df
-        #         #   .query('category.isin(@category_filter)')
-        #           .groupby('category')
-        #           [agg_col]
-        #           .mean()
-        #           .sort_values()
-        #           .iloc[:top_n]
-        #           )
-        # category = st.plotly_chart(
-        #     px.bar(agg_df,
-        #            orientation='h',
-        #            ),
-        #     selection_mode="points",
-        #     on_select='rerun'
-        # )
-    
-
-
-        # if category.selection['point_indices']:
-        #     star_range = st.slider(label='Select Star Range', min_value=1, max_value=5, value=(1, 5))
-        #     st.write(star_range)
-        #     cat = agg_df.iloc[category.selection['point_indices']].index
-        #     single_category_df = temp_df.query('category == @cat[0]').sort_values(by='average_rating', ascending=False)
-        #     fac_ids = tuple(single_category_df.facility_id.unique().tolist())
-        #     query = f"""
-        #     select 
-        #         facility_id,
-        #         timestamp,
-        #         rating,
-        #         text
-        #     from read_csv_auto('data/atx_reviews.csv')
-        #     where true
-        #     and facility_id in {fac_ids}
-        #     and text not null
-        #     """
-        #     reviews_df = duckdb.query(query).df()
-        #     st.write(reviews_df.query('rating.between(@star_range[0], @star_range[1])').sort_values(by='timestamp'))
-        
-
-
-
-
+    with tab2:
+        filtered_reviews = reviews.filter(pl.col('facility_id').is_in(fac_ids))
+        st.write(filtered_reviews)

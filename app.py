@@ -27,6 +27,18 @@ def load_categories():
     return duckdb.query(query).df()
 
 
+def load_filtered_reviews(fac_ids):
+    query = f"""
+    SELECT
+        facility_id,
+        text,
+        rating
+    FROM read_parquet('data/all/all_reviews.parquet')
+    WHERE facility_id IN {fac_ids}
+    """
+    return duckdb.query(query).df()
+
+
 ######### LOAD DATA ######### 
 establishments = pl.scan_parquet('data/all/all_establishments.parquet')
 reviews = pl.scan_parquet('data/all/all_reviews.parquet')
@@ -99,9 +111,10 @@ with agg_col:
     with tab1:
         if map_selection.selection['point_indices']:
             map_selection_idx = map_selection.selection['point_indices']
-            fac_ids = map_df.iloc[map_selection_idx]['facility_id']
+            fac_ids = map_df.iloc[map_selection_idx]['facility_id'].unique()
         else:
-            fac_ids = map_df.facility_id.to_list()
+            fac_ids = map_df.facility_id.unique()
+        fac_ids = tuple(fac_ids)
         
         ratings_timeseries = (nyc_establishments
                             .filter(pl.col('facility_id').is_in(fac_ids))
@@ -126,5 +139,5 @@ with agg_col:
         )
 
     with tab2:
-        filtered_reviews = reviews.filter(pl.col('facility_id').is_in(fac_ids))
+        filtered_reviews = load_filtered_reviews(fac_ids)
         st.write(filtered_reviews)

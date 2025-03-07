@@ -36,7 +36,7 @@ test_kw = ['cozy',
  'worst',
  'beautiful']
 
-st.write(test_kw)
+test_kw = '|'.join(test_kw)
 
 ######### DEFINE FUNCTIONS ######### 
 
@@ -97,10 +97,10 @@ with main_filter_col:
     with st.popover('Filters', use_container_width=True):
         filter_col1, filter_col2= st.columns([3, 3])
         with filter_col1:
-            categories = st.multiselect(label='Choose categories', options=load_categories())
-            # st.write('test')
+            # categories = st.multiselect(label='Choose categories', options=load_categories())
+            categories = st.pills(label='Choose categories', options=load_categories(), selection_mode='multi')
         with filter_col2:
-            st.write('test')
+            st.write('placeholder')
 
 
 

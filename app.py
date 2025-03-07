@@ -34,7 +34,10 @@ def load_filtered_reviews(fac_ids):
         text,
         rating
     FROM read_parquet('data/all/all_reviews.parquet')
-    WHERE facility_id IN {fac_ids}
+    WHERE 
+        True
+        AND facility_id IN {fac_ids}
+        AND text NOT NULL
     """
     return duckdb.query(query).df()
 

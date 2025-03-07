@@ -6,6 +6,38 @@ import polars as pl
 
 st.set_page_config(layout='wide')
 
+test_kw = ['cozy',
+ 'gem',
+ 'cute',
+ 'incredible',
+ 'unique',
+ 'ambiance',
+ 'hidden',
+ 'lovely',
+ 'delightful',
+ 'phenomenal',
+ 'vibes',
+ 'creative',
+ 'vibe',
+ 'horrible',
+ 'nasty',
+ 'inviting',
+ 'beautifully',
+ 'disgusting',
+ 'decor',
+ 'rich',
+ 'balanced',
+ 'refreshing',
+ 'fantastic',
+ 'charming',
+ 'ambience',
+ 'notch',
+ 'recommendations',
+ 'worst',
+ 'beautiful']
+
+st.write(test_kw)
+
 ######### DEFINE FUNCTIONS ######### 
 
 def load_categories():
@@ -36,7 +68,8 @@ def load_filtered_reviews(fac_ids):
     FROM read_parquet('data/all/all_reviews.parquet')
     WHERE 
         True
-        AND facility_id IN {fac_ids}
+        AND facility_id IN {fac_ids}    
+        AND REGEXP_MATCHES(text, '{test_kw}')
         AND text NOT NULL
     """
     return duckdb.query(query).df()
@@ -110,7 +143,7 @@ with map_col:
         )
 
 with agg_col:
-    tab1, tab2 = st.tabs(["📈 Ratings Over Time", "🗃 Reviews"])
+    tab1, tab2 = st.tabs(["📈 Ratings Over Time", ":star: Reviews"])
     with tab1:
         if map_selection.selection['point_indices']:
             map_selection_idx = map_selection.selection['point_indices']
